@@ -1348,6 +1348,65 @@ void od_mc_blend_full_split8_check(unsigned char *_dst,int _dystride,
   "psrldq $8,%%xmm0\n\t" \
   "movq %%xmm0,(%[dst],%[dystride])\n\t" \
 
+/*Blends 1 row of an 16xN block with split edges (N up to 16).
+  %[dst] must be manually advanced to the proper row beforehand because of its
+   stride.*/
+#define OD_MC_BLEND_FULL_SPLIT8_16x1(_log_yblk_sz) \
+  "pxor %%xmm7,%%xmm7\n\t" \
+  /*Load the first two images to blend.*/ \
+  OD_IM_LOAD16A \
+  /*Unpack and merge the 0 image.*/ \
+  OD_IM_UNPACK("%%xmm0","%%xmm4","%%xmm7") \
+  OD_IM_UNPACK("%%xmm2","%%xmm6","%%xmm7") \
+  "paddw %%xmm2,%%xmm0\n\t" \
+  "paddw %%xmm6,%%xmm4\n\t" \
+  /*Unpack and merge the 1 image.*/ \
+  OD_IM_UNPACK("%%xmm1","%%xmm5","%%xmm7") \
+  OD_IM_UNPACK("%%xmm3","%%xmm6","%%xmm7") \
+  "lea %[OD_BILH],%[a]\n\t" \
+  "paddw %%xmm3,%%xmm1\n\t" \
+  "paddw %%xmm6,%%xmm5\n\t" \
+  "movdqa 0x10(%[a]),%%xmm6\n\t" \
+  /*Blend the 0 and 1 images.*/ \
+  OD_IM_BLEND("%%xmm0","%%xmm4","%%xmm1","%%xmm5","$4","(%[a])","%%xmm6") \
+  /*Load, unpack, and merge the 2 image.*/ \
+  OD_IM_LOAD16B \
+  OD_IM_UNPACK("%%xmm2","%%xmm5","%%xmm7") \
+  OD_IM_UNPACK("%%xmm1","%%xmm6","%%xmm7") \
+  "paddw %%xmm1,%%xmm2\n\t" \
+  "paddw %%xmm6,%%xmm5\n\t" \
+  /*Load, unpack, and merge the 3 image.*/ \
+  OD_IM_LOAD16C \
+  OD_IM_UNPACK("%%xmm3","%%xmm6","%%xmm7") \
+  /*"lea %[OD_BILV],%[a]\n\t" \
+  OD_IM_UNPACK("%%xmm1","%%xmm7","(%[a])") \
+  "paddw %%xmm1,%%xmm3\n\t" \
+  "pcmpeqw %%xmm1,%%xmm1\n\t" \
+  "paddw %%xmm7,%%xmm6\n\t" \
+  "pxor %%xmm7,%%xmm7\n\t"*/ \
+  /*Alternate version: Saves 1 memory reference, but has a longer dependency \
+     chain.*/ \
+  "movdqa %%xmm1,%%xmm7\n\t" \
+  "punpcklbw %[OD_BILV],%%xmm7\n\t" \
+  "paddw %%xmm7,%%xmm3\n\t" \
+  "pxor %%xmm7,%%xmm7\n\t" \
+  "punpckhbw %%xmm7,%%xmm1\n\t" \
+  "paddw %%xmm1,%%xmm6\n\t" \
+  "pcmpeqw %%xmm1,%%xmm1\n\t" \
+  /*End alternate version.*/ \
+  "lea %[OD_BILH],%[a]\n\t" \
+  "psubw %%xmm1,%%xmm7\n\t" \
+  "movdqa 0x10(%[a]),%%xmm1\n\t" \
+  OD_IM_BLEND("%%xmm2","%%xmm5","%%xmm3","%%xmm6","$4","(%[a])","%%xmm1") \
+  /*Blend, shift, and re-pack images 0+1 and 2+3.*/ \
+  "psllw $" #_log_yblk_sz "+4,%%xmm7\n\t" \
+  "lea %[OD_BILV],%[a]\n\t" \
+  OD_IM_BLEND("%%xmm0","%%xmm4","%%xmm2","%%xmm5","$" #_log_yblk_sz, \
+   "(%[a],%[row])","(%[a],%[row])") \
+  OD_IM_PACK("%%xmm0","%%xmm4","%%xmm7","$" #_log_yblk_sz "+5") \
+  /*Get it back out to memory.*/ \
+  "movdqa %%xmm0,(%[dst])\n\t" \
+
 #if 0
 /*Defines a pure-C implementation with hard-coded loop limits for block sizes
    we don't want to implement manually (e.g., that have fewer than 16 bytes,
@@ -1512,7 +1571,21 @@ static void od_mc_blend_full_split8_8x8(unsigned char *_dst,int _dystride,
   }
 }
 
-OD_MC_BLEND_FULL_SPLIT8_C(16,16,4,4)
+static void od_mc_blend_full_split8_16x16(unsigned char *_dst,int _dystride,
+ const unsigned char *_src[8]){
+  ptrdiff_t a;
+  ptrdiff_t row;
+  for(row=0;row<0x100;row+=0x10){
+    __asm__ __volatile__(
+      OD_MC_BLEND_FULL_SPLIT8_16x1(4)
+      "lea (%[dst],%[dystride]),%[dst]\t\n"
+      :[dst]"+r"(_dst),[row]"+r"(row),[a]"=&r"(a)
+      :[src]"r"(_src),[dystride]"r"((ptrdiff_t)_dystride),
+       [OD_BILH]"m"(*OD_BILH),[OD_BILV]"m"(*OD_BILV),
+       [pstride]"i"(sizeof(*_src))
+    );
+  }
+}
 
 typedef void (*od_mc_blend_full_split8_fixed_func)(unsigned char *_dst,
  int _dystride,const unsigned char *_src[8]);
