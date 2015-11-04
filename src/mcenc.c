@@ -2181,7 +2181,8 @@ static int od_mv_est_bits(od_mv_est_ctx *est, int vx, int vy, int mv_res) {
   state = &est->enc->state;
   mvg = state->mv_grid[vy] + vx;
   equal_mvs = od_state_get_predictor(state, pred, vx, vy,
-   OD_MC_LEVEL[vy & OD_MVB_MASK][vx & OD_MVB_MASK], mv_res, mvg->ref);
+   OD_MC_LEVEL[vy & OD_MVB_MASK][vx & OD_MVB_MASK], mv_res, mvg->ref, NULL,
+   NULL);
   ref_pred = od_mc_get_ref_predictor(state,  vx, vy,
    OD_MC_LEVEL[vy & OD_MVB_MASK][vx & OD_MVB_MASK]);
   mv_rate = od_mv_est_cand_bits(est, equal_mvs,
@@ -2203,7 +2204,8 @@ static void od_mv_est_log_pred(od_mv_est_ctx *est, int vx, int vy,
   state = &est->enc->state;
   mvg = state->mv_grid[vy] + vx;
   equal_mvs = od_state_get_predictor(state, pred, vx, vy,
-   OD_MC_LEVEL[vy & OD_MVB_MASK][vx & OD_MVB_MASK], mv_res, mvg->ref);
+   OD_MC_LEVEL[vy & OD_MVB_MASK][vx & OD_MVB_MASK], mv_res, mvg->ref, NULL,
+   NULL);
   ref_pred = od_mc_get_ref_predictor(state,  vx, vy,
    OD_MC_LEVEL[vy & OD_MVB_MASK][vx & OD_MVB_MASK]);
   OD_LOG((OD_LOG_MOTION_ESTIMATION, OD_LOG_DEBUG,
@@ -2591,9 +2593,10 @@ static void od_mv_est_init_mv(od_mv_est_ctx *est, int ref, int vx, int vy,
   ncns = 4;
   nhmvbs = state->nhmvbs;
   nvmvbs = state->nvmvbs;
-  equal_mvs = od_state_get_predictor(state, pred, vx, vy, level, 2, ref);
-  candx = OD_CLAMPI(mvxmin, pred[0], mvxmax);
-  candy = OD_CLAMPI(mvymin, pred[1], mvymax);
+  equal_mvs = od_state_get_predictor(state, pred, vx, vy, level, 2, ref, NULL,
+   NULL);
+  candx = OD_CLAMPI(mvxmin, OD_DIV2_RE(pred[0]), mvxmax);
+  candy = OD_CLAMPI(mvymin, OD_DIV2_RE(pred[1]), mvymax);
   ref_pred = od_mc_get_ref_predictor(state, vx, vy, level);
   /*Find additional candidates.*/
   if (level == 0) {
@@ -6148,6 +6151,7 @@ void od_mv_subpel_refine(od_mv_est_ctx *est, int cost_thresh) {
   od_state_set_mv_res(state, best_mv_res);
 }
 
+uint16_t mv_small_cdf_init[16] = {10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25};
 void od_mv_est(od_mv_est_ctx *est, int lambda) {
   od_state *state;
   od_img_plane *iplane;
@@ -6177,9 +6181,9 @@ void od_mv_est(od_mv_est_ctx *est, int lambda) {
   for (i = 0; i < 5; i++) {
     for (j = 0; j < 16; j++) {
       est->mv_small_rate_est[i][j] = (int)((1 << OD_BITRES)
-       *(OD_LOG2(est->enc->state.adapt.mv_small_cdf[i][15])
-       - (OD_LOG2(est->enc->state.adapt.mv_small_cdf[i][j]
-       - (j > 0 ? est->enc->state.adapt.mv_small_cdf[i][j - 1] : 0)))) + 0.5);
+       *(OD_LOG2(mv_small_cdf_init[15])
+       - (OD_LOG2(mv_small_cdf_init[j]
+       - (j > 0 ? mv_small_cdf_init[j - 1] : 0)))) + 0.5);
     }
   }
   /*If the luma plane is decimated for some reason, then our distortions will

@@ -2582,7 +2582,8 @@ static void od_compute_median(int pred[2], int (*neighbors)[2], int n,
 
 /*Gets the predictor for a given MV node at the given MV resolution.*/
 int od_state_get_predictor(od_state *state,
- int pred[2], int vx, int vy, int level, int mv_res, int ref) {
+ int pred[2], int vx, int vy, int level, int mv_res, int ref,
+ int (*all_preds)[2], int *nb_preds) {
   static const od_mv_grid_pt ZERO_GRID_PT = { {0, 0}, 1, OD_FRAME_PREV};
   const od_mv_grid_pt *cneighbors[4];
   int a[4][2];
@@ -2643,10 +2644,31 @@ int od_state_get_predictor(od_state *state,
   }
   od_compute_median(pred, a, an, mv_res);
   equal_mvs = 0;
-  for (ci = 0; ci < ncns; ci++) {
-    if (pred[0] == OD_DIV_POW2_RE(cneighbors[ci]->mv[0], mv_res) &&
-     pred[1] == OD_DIV_POW2_RE(cneighbors[ci]->mv[1], mv_res)) {
+  for (ci = 0; ci < an; ci++) {
+    if (pred[0] == OD_DIV_POW2_RE(a[ci][0], mv_res) &&
+     pred[1] == OD_DIV_POW2_RE(a[ci][1], mv_res)) {
       equal_mvs++;
+    }
+  }
+  OD_ASSERT(an == 0 || equal_mvs > 0);
+  if (nb_preds != NULL) {
+    all_preds[0][0] = pred[0];
+    all_preds[0][1] = pred[1];
+    *nb_preds = 1;
+    for (ci = 0; ci < an; ci++) {
+      int j;
+      int equal = 0;
+      for (j = 0; j < *nb_preds; j++) {
+        if (all_preds[j][0] == OD_DIV_POW2_RE(a[ci][0], mv_res) &&
+         all_preds[j][1] == OD_DIV_POW2_RE(a[ci][1], mv_res)) {
+          equal = 1;
+        }
+      }
+      if (!equal) {
+        all_preds[*nb_preds][0] = OD_DIV_POW2_RE(a[ci][0], mv_res);
+        all_preds[*nb_preds][1] = OD_DIV_POW2_RE(a[ci][1], mv_res);
+        (*nb_preds)++;
+      }
     }
   }
   return equal_mvs;
