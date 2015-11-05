@@ -2595,8 +2595,8 @@ static void od_mv_est_init_mv(od_mv_est_ctx *est, int ref, int vx, int vy,
   nvmvbs = state->nvmvbs;
   equal_mvs = od_state_get_predictor(state, pred, vx, vy, level, 2, ref, NULL,
    NULL);
-  candx = OD_CLAMPI(mvxmin, OD_DIV2_RE(pred[0]), mvxmax);
-  candy = OD_CLAMPI(mvymin, OD_DIV2_RE(pred[1]), mvymax);
+  candx = OD_CLAMPI(mvxmin, pred[0], mvxmax);
+  candy = OD_CLAMPI(mvymin, pred[1], mvymax);
   ref_pred = od_mc_get_ref_predictor(state, vx, vy, level);
   /*Find additional candidates.*/
   if (level == 0) {
