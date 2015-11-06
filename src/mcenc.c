@@ -2144,7 +2144,8 @@ static const int OD_MV_GE3_EST_RATE[256] = {
 /*Estimate the number of bits that will be used to encode the given MV and its
    predictor.*/
 static int od_mv_est_cand_bits(od_mv_est_ctx *est, int equal_mvs,
- int dx, int dy, int predx, int predy, int ref, int ref_pred) {
+ int dx, int dy, int predx, int predy, int ref, int ref_pred,
+ int (*all_preds)[2], int nb_preds) {
   int ox;
   int oy;
   int id;
@@ -2154,6 +2155,16 @@ static int od_mv_est_cand_bits(od_mv_est_ctx *est, int equal_mvs,
   sign_cost = 1 << OD_BITRES;
   ox = dx - predx;
   oy = dy - predy;
+  if (all_preds != NULL) {
+    int i;
+    for (i = 1; i < nb_preds; i++) {
+      if (all_preds[i][0] == dx && all_preds[i][1] == dy) {
+        cost += 16;
+        ox = oy = 0;
+        break;
+      }
+    }
+  }
   id = OD_MINI(abs(oy), 3)*4 + OD_MINI(abs(ox), 3);
   cost += ((ox != 0) + (oy != 0))*sign_cost;
   cost += est->mv_small_rate_est[equal_mvs][id];
@@ -2177,17 +2188,19 @@ static int od_mv_est_bits(od_mv_est_ctx *est, int vx, int vy, int mv_res) {
   int equal_mvs;
   int mv_rate;
   int ref_pred;
+  int all_preds[4][2];
+  int nb_preds;
   od_mv_grid_pt *mvg;
   state = &est->enc->state;
   mvg = state->mv_grid[vy] + vx;
   equal_mvs = od_state_get_predictor(state, pred, vx, vy,
-   OD_MC_LEVEL[vy & OD_MVB_MASK][vx & OD_MVB_MASK], mv_res, mvg->ref, NULL,
-   NULL);
+   OD_MC_LEVEL[vy & OD_MVB_MASK][vx & OD_MVB_MASK], mv_res, mvg->ref,
+   all_preds, &nb_preds);
   ref_pred = od_mc_get_ref_predictor(state,  vx, vy,
    OD_MC_LEVEL[vy & OD_MVB_MASK][vx & OD_MVB_MASK]);
   mv_rate = od_mv_est_cand_bits(est, equal_mvs,
    mvg->mv[0] >> mv_res, mvg->mv[1] >> mv_res, pred[0], pred[1],
-   mvg->ref, ref_pred);
+   mvg->ref, ref_pred, all_preds, nb_preds);
   return mv_rate;
 }
 
@@ -2660,7 +2673,7 @@ static void od_mv_est_init_mv(od_mv_est_ctx *est, int ref, int vx, int vy,
 #endif
   best_sad = od_mv_est_bma_sad(est, ref, bx, by, candx, candy, log_mvb_sz);
   best_rate = od_mv_est_cand_bits(est, equal_mvs,
-   candx, candy, pred[0], pred[1], ref, ref_pred);
+   candx << 1, candy << 1, pred[0], pred[1], ref, ref_pred, NULL, 0);
   best_cost = (best_sad << OD_ERROR_SCALE) + best_rate*est->lambda;
   OD_LOG((OD_LOG_MOTION_ESTIMATION, OD_LOG_DEBUG,
    "Median predictor: (%i, %i)   Cost: %i", candx, candy, best_cost));
@@ -2716,7 +2729,7 @@ static void od_mv_est_init_mv(od_mv_est_ctx *est, int ref, int vx, int vy,
 #endif
       sad = od_mv_est_bma_sad(est, ref, bx, by, candx, candy, log_mvb_sz);
       rate = od_mv_est_cand_bits(est, equal_mvs,
-       candx, candy, pred[0], pred[1], ref, ref_pred);
+       candx << 1, candy << 1, pred[0], pred[1], ref, ref_pred, NULL, 0);
       cost = (sad << OD_ERROR_SCALE) + rate*est->lambda;
       OD_LOG((OD_LOG_MOTION_ESTIMATION, OD_LOG_DEBUG,
        "Set B predictor %i: (%i, %i)    Cost: %i", ci, candx, candy, cost));
@@ -2763,7 +2776,7 @@ static void od_mv_est_init_mv(od_mv_est_ctx *est, int ref, int vx, int vy,
 #endif
         sad = od_mv_est_bma_sad(est, ref, bx, by, candx, candy, log_mvb_sz);
         rate = od_mv_est_cand_bits(est, equal_mvs,
-         candx, candy, pred[0], pred[1], ref, ref_pred);
+         candx << 1, candy << 1, pred[0], pred[1], ref, ref_pred, NULL, 0);
         cost = (sad << OD_ERROR_SCALE) + rate*est->lambda;
         OD_LOG((OD_LOG_MOTION_ESTIMATION, OD_LOG_DEBUG,
          "Set C predictor %i: (%i, %i)    Cost: %i", ci, candx, candy, cost));
@@ -2823,7 +2836,7 @@ static void od_mv_est_init_mv(od_mv_est_ctx *est, int ref, int vx, int vy,
             sad = od_mv_est_bma_sad(est,
              ref, bx, by, candx, candy, log_mvb_sz);
             rate = od_mv_est_cand_bits(est, equal_mvs,
-             candx, candy, pred[0], pred[1], ref, ref_pred);
+             candx << 1, candy << 1, pred[0], pred[1], ref, ref_pred, NULL, 0);
             cost = (sad << OD_ERROR_SCALE) + rate*est->lambda;
             OD_LOG((OD_LOG_MOTION_ESTIMATION, OD_LOG_DEBUG,
              "Pattern search %i: (%i, %i)    Cost: %i",
@@ -2865,7 +2878,7 @@ static void od_mv_est_init_mv(od_mv_est_ctx *est, int ref, int vx, int vy,
       candy = best_vec[1] + OD_SITE_DY[site];
       sad = od_mv_est_bma_sad(est, ref, bx, by, candx, candy, log_mvb_sz);
       rate = od_mv_est_cand_bits(est, equal_mvs,
-       candx, candy, pred[0], pred[1], ref, ref_pred);
+       candx << 1, candy << 1, pred[0], pred[1], ref, ref_pred, NULL, 0);
       cost = (sad << OD_ERROR_SCALE) + rate*est->lambda;
       if (cost < best_cost) {
         best_sad = sad;
